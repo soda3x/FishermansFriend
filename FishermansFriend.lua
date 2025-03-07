@@ -25,140 +25,102 @@ end
 
 local function OnLootReceived(eventCode, lootedBy, itemLink, quantity, itemSound, lootType, isStolen)
     if lootType == LOOT_TYPE_ITEM then
-        -- need to account for COLLECTIBLE (34) fish (Green, Blue etc.)
-        d("Item is: " .. itemLink .. " and it is a " .. GetItemLinkItemType(itemLink))
-        if GetItemLinkItemType(itemLink) == ITEMTYPE_FISH then
-            if FishermansFriend.caughtFish[itemLink] then
-                FishermansFriend.caughtFish[itemLink] = FishermansFriend.caughtFish[itemLink] + 1
-            else
-                FishermansFriend.caughtFish[itemLink] = 1
-            end
-
-            local xpGain = RARE_FISH[itemLink] and XP_PER_RARE_FISH or XP_PER_FISH
-            FishermansFriend.xp = FishermansFriend.xp + xpGain
-            d("Caught: " .. itemLink .. " (XP: " .. xpGain .. ")")
-
-            UpdateLevel()
-            UpdateUI()
+        local fishName = GetItemLinkName(itemLink)
+        if not FishermansFriend.caughtFish[fishName] then
+            FishermansFriend.caughtFish[fishName] = { count = 0, icon = GetItemLinkIcon(itemLink), rare = RARE_FISH[itemLink] }
         end
+        FishermansFriend.caughtFish[fishName].count = FishermansFriend.caughtFish[fishName].count + quantity
+        
+        local xpGain = RARE_FISH[itemLink] and XP_PER_RARE_FISH or XP_PER_FISH
+        FishermansFriend.xp = FishermansFriend.xp + xpGain
+        d("Caught: " .. fishName .. " (XP: " .. xpGain .. ")")
+        
+        UpdateLevel()
     end
 end
 
 local function CreateUI()
-    if FishermansFriendWindow then
-        FishermansFriendWindow:SetHidden(false)
-        return
-    end
-
+    if FishermansFriendWindow then FishermansFriendWindow:SetHidden(false) return end
+    
     local window = WINDOW_MANAGER:CreateTopLevelWindow("FishermansFriendWindow")
     window:SetDimensions(500, 500)
     window:SetAnchor(CENTER, GuiRoot, CENTER, 0, 0)
     window:SetMovable(true)
     window:SetMouseEnabled(true)
     window:SetClampedToScreen(true)
-
-    -- Backdrop
+    
     local backdrop = WINDOW_MANAGER:CreateControlFromVirtual("FishermansFriendBG", window, "ZO_DefaultBackdrop")
     backdrop:SetAnchorFill()
-    -- End Backdrop
-
-    -- Title text
+    
     local title = WINDOW_MANAGER:CreateControlFromVirtual("FishermansFriendTitle", window, "ZO_WindowTitle")
     title:SetAnchor(TOP, window, TOP, 0, 10)
-    title:SetText("Fisherman's Friend")
-    -- ENd Title text
-
-    -- Close Button
+    title:SetText("Fishing Bestiary")
+    
     local closeButton = WINDOW_MANAGER:CreateControlFromVirtual("FishermansFriendClose", window, "ZO_CloseButton")
     closeButton:SetAnchor(TOPRIGHT, window, TOPRIGHT, -5, 5)
-    closeButton:SetHandler("OnClicked", function()
-        window:SetHidden(true)
-    end)
-    -- End Close Button
-
-    -- Level Label
+    closeButton:SetHandler("OnClicked", function() window:SetHidden(true) end)
+    
     local levelLabel = WINDOW_MANAGER:CreateControl("FishermansFriendLevel", window, CT_LABEL)
     levelLabel:SetFont("ZoFontGame")
-    levelLabel:SetText("Level: " .. FishermansFriend.level .. " (XP: " .. FishermansFriend.xp .. "/" .. XP_PER_LEVEL ..
-                           ")")
+    levelLabel:SetText("Level: " .. FishermansFriend.level .. " (XP: " .. FishermansFriend.xp .. "/" .. XP_PER_LEVEL .. ")")
     levelLabel:SetAnchor(TOP, title, BOTTOM, 0, 10)
-
-    -- Scroll container
-    local scrollContainer = WINDOW_MANAGER:CreateControl("FishermansFriendList", window, "ZO_ScrollList")
-    scrollContainer:SetAnchor(TOPLEFT, window, TOPLEFT, 20, 50)
-    scrollContainer:SetDimensions(500, 300)
-    -- End Scroll container
-
-    -- Function to create a fish tile from an itemLink
-    local function CreateFishTile(itemLink, count, uid)
-        -- Get the fish name and icon from the itemLink
-        local fishName = GetItemLinkName(itemLink)
-        local fishIcon = GetItemLinkIcon(itemLink)
-
-        -- Create the tile to display the fish
-        local controlName = "FishTile_" .. uid
-        local tile = CreateControl(controlName, scrollContainer, CT_CONTROL)
-
-        -- Set tile dimensions and position
-        tile:SetDimensions(50, 50)
-
-        -- Add the fish name (Text Label)
-        local nameLabelName = "FishNameLabel_" .. uid
-        local nameLabel = CreateControl(nameLabelName, tile, CT_LABEL)
-        nameLabel:SetAnchor(TOP, tile, TOP, 0, 5)
-        nameLabel:SetText(fishName .. " x" .. count) -- Display the fish name and count
-
-        -- Add the fish image (Icon)
-        local iconName = "FishIcon_" .. uid
-        local icon = CreateControl(iconName, tile, CT_TEXTURE) -- CT_TEXTURE creates a texture control
-        icon:SetAnchor(TOP, nameLabel, BOTTOM, 0, 5)
-        icon:SetTexture(fishIcon) -- Set the texture for the fish icon
-
-        return tile
-    end
-
+    
+    local xpBar = WINDOW_MANAGER:CreateControl("FishermansFriendXPBar", window, CT_STATUSBAR)
+    xpBar:SetDimensions(300, 20)
+    xpBar:SetAnchor(TOP, levelLabel, BOTTOM, 0, 10)
+    xpBar:SetMinMax(0, XP_PER_LEVEL)
+    xpBar:SetValue(FishermansFriend.xp)
+    xpBar:SetTexture("EsoUI/Art/Miscellaneous/progressBar_fill.dds")
+    
+    local scrollContainer = WINDOW_MANAGER:CreateControlFromVirtual("FishermansFriendScroll", window, "ZO_ScrollContainer")
+    scrollContainer:SetDimensions(460, 300)
+    scrollContainer:SetAnchor(TOP, xpBar, BOTTOM, 0, 20)
+    
     function UpdateUI()
+        
         local fishList = {}
-        for fish, count in pairs(FishermansFriend.caughtFish) do
-            d(fish)
-            table.insert(fishList, {
-                name = fish,
-                count = count,
-                rare = RARE_FISH[fish]
-            })
+        for fishName, data in pairs(FishermansFriend.caughtFish) do
+            table.insert(fishList, { name = fishName, count = data.count, icon = data.icon, rare = data.rare })
         end
-
-        -- Loop through the caughtFish table and create a tile for each fish caught
-        local offsetY = 0
-        local uid = 0
-        for itemLink, count in pairs(FishermansFriend.caughtFish) do
-            -- Only display fish items
-            local fishTile = CreateFishTile(itemLink, count, uid)
-            fishTile:SetAnchor(TOPLEFT, scrollContainer, TOPLEFT, 0, offsetY)
-
-            -- Increment offsetY for the next tile
-            offsetY = offsetY + 60 -- Adjust the space between tiles
-            uid = uid + 1
+        
+        if FishermansFriend.sortOrder == "count" then
+            table.sort(fishList, function(a, b) return a.count > b.count end)
+        else
+            table.sort(fishList, function(a, b) return a.name < b.name end)
         end
-
-        ZO_ScrollList_AddData(scrollList, fishTable)
-        ZO_ScrollList_Commit(scrollList)
-
-        levelLabel:SetText(
-            "Level: " .. FishermansFriend.level .. " (XP: " .. FishermansFriend.xp .. "/" .. XP_PER_LEVEL .. ")")
+        
+        local yOffset = 0
+        for _, fish in ipairs(fishList) do
+            local tile = WINDOW_MANAGER:CreateControl(nil, scrollContainer:GetNamedChild("scrollChild"), CT_CONTROL)
+            tile:SetDimensions(100, 100)
+            tile:SetAnchor(TOPLEFT, scrollContainer:GetNamedChild("scrollChild"), TOPLEFT, 0, yOffset)
+            
+            local icon = WINDOW_MANAGER:CreateControl(nil, tile, CT_TEXTURE)
+            icon:SetDimensions(64, 64)
+            icon:SetAnchor(TOP, tile, TOP, 0, 0)
+            icon:SetTexture(fish.icon)
+            
+            local label = WINDOW_MANAGER:CreateControl(nil, tile, CT_LABEL)
+            label:SetFont("ZoFontGame")
+            label:SetText(fish.name .. " x" .. fish.count)
+            label:SetAnchor(TOP, icon, BOTTOM, 0, 5)
+            
+            yOffset = yOffset + 110
+        end
+        
+        levelLabel:SetText("Level: " .. FishermansFriend.level .. " (XP: " .. FishermansFriend.xp .. "/" .. XP_PER_LEVEL .. ")")
+        xpBar:SetValue(FishermansFriend.xp)
     end
-
+    
     UpdateUI()
 end
 
-SLASH_COMMANDS["/fishermansfriend"] = function()
+SLASH_COMMANDS["/ff"] = function()
     CreateUI()
 end
 
 local function OnAddonLoaded(event, addonName)
-    if addonName ~= "FishermansFriend" then
-        return
-    end
+    if addonName ~= "FishermansFriend" then return end
     FishermansFriend = ZO_SavedVars:New("FishermansFriendData", 1, nil, {
         caughtFish = {},
         level = 1,
