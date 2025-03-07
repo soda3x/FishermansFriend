@@ -1,0 +1,8 @@
+## Title: Fisherman's Friend
+## APIVersion: 101040
+## Version: 1.0
+## Author: soda3x
+## Description: Fishing mini-game to make it more interesting
+## SavedVariables: FishermansFriendData
+
+FishermansFriend.lua
